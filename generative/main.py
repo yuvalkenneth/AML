@@ -1,16 +1,40 @@
-# This is a sample Python script.
+import torch
+from mingpt.model import GPT
+from mingpt.trainer import Trainer
+import mingpt.bpe
+import tqdm
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+TRAIN_ITERATIONS = 1000
+
+TRAIN_BATCH_SIZE = 32
+
+VOCAB_SIZE = 50257
+BLOCK_SIZE = 64
+LR = 5e-4
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+def init_model():
+    model_config = GPT.get_default_config()
+    model_config.model_type = 'gpt-nano'
+    model_config.vocab_size = VOCAB_SIZE  # TODO check if correct
+    model_config.block_size = BLOCK_SIZE
+    return GPT(model_config)
 
 
-# Press the green button in the gutter to run the script.
+def init_trainer(model_to_train, data):
+    train_config = Trainer.get_default_config()
+    train_config.learning_rate = LR
+    train_config.max_iters = TRAIN_ITERATIONS
+    train_config.batch_size = TRAIN_BATCH_SIZE
+    return Trainer(train_config, model_to_train, data)
+
+
 if __name__ == '__main__':
-    print_hi('PyCharm')
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+    with open("alice_in_wonderland.txt") as f:
+        dataset = f.read()
+    # data = data.replace("\n", " ")
+    e = mingpt.bpe.BPETokenizer()
+    tokenized_data = e(dataset)
+    model = init_model()
+    trainer = init_trainer(model, tokenized_data)
+    trainer.run()
