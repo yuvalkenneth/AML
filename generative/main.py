@@ -1,4 +1,5 @@
 import torch
+from torch.utils.data import DataLoader, TensorDataset
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
 import mingpt.bpe
@@ -18,7 +19,8 @@ def init_model():
     model_config.model_type = 'gpt-nano'
     model_config.vocab_size = VOCAB_SIZE  # TODO check if correct
     model_config.block_size = BLOCK_SIZE
-    return GPT(model_config)
+    gpt = GPT(model_config)
+    return gpt
 
 
 def init_trainer(model_to_train, data):
@@ -26,7 +28,16 @@ def init_trainer(model_to_train, data):
     train_config.learning_rate = LR
     train_config.max_iters = TRAIN_ITERATIONS
     train_config.batch_size = TRAIN_BATCH_SIZE
-    return Trainer(train_config, model_to_train, data)
+
+    def batch_end_callback(trainer):
+        if trainer.iter_num % 100 == 0:
+            print(
+                f"iter_dt {trainer.iter_dt * 1000:.2f}ms; iter {trainer.iter_num}: train loss "
+                f"{trainer.loss.item():.5f}")
+
+    trainer = Trainer(train_config, model_to_train, data)
+    trainer.set_callback('on_batch_end', batch_end_callback)
+    return trainer
 
 
 if __name__ == '__main__':
@@ -35,6 +46,12 @@ if __name__ == '__main__':
     # data = data.replace("\n", " ")
     e = mingpt.bpe.BPETokenizer()
     tokenized_data = e(dataset)
+
+    x = torch.stack([tokenized_data[0][i:i + BLOCK_SIZE] for i in range(len(tokenized_data[0]) - BLOCK_SIZE -
+                                                                        1)])
+    y = torch.tensor([tokenized_data[0][i + BLOCK_SIZE + 1] for i in range(len(tokenized_data[0]) -
+                                                                           BLOCK_SIZE - 1)])
+    dataset = TensorDataset(x, y)
     model = init_model()
-    trainer = init_trainer(model, tokenized_data)
-    trainer.run()
+    model_trainer = init_trainer(model, dataset)
+    model_trainer.run()
