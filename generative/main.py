@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import Dataset, TensorDataset
+from torch.utils.data import Dataset, TensorDataset, DataLoader
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
 import mingpt.bpe
@@ -52,10 +52,19 @@ def init_trainer(model_to_train, data):
     return trainer
 
 
+# def data_by_blocks(data, block_size):
+#     return [data[i:i + block_size] for i in range(len(data) - block_size - 1)], [data[i + block_size + 1]
+#                                                                                  for i in range(
+#             len(data) - block_size - 1)]
 def data_by_blocks(data, block_size):
-    return [data[i:i + block_size] for i in range(len(data) - block_size - 1)], [data[i + block_size + 1]
-                                                                                 for i in range(
-            len(data) - block_size - 1)]
+    i = 0
+    x = []
+    y = []
+    while i < len(data) - block_size:
+        x.append(data[i:i + block_size])
+        y.append(data[i + 1:i + block_size + 1])
+        i += 1
+    return x, y
 
 
 if __name__ == '__main__':
@@ -66,7 +75,11 @@ if __name__ == '__main__':
     tokenized_data = e(dataset)
 
     x, y = data_by_blocks(tokenized_data[0], BLOCK_SIZE)
+    x = torch.stack(x)
+    y = torch.stack(y)
     dataset = TrainSet(x, y)
+    # dataset = TrainSet(x, y)
+
     model = init_model()
     model_trainer = init_trainer(model, dataset)
     model_trainer.run()
