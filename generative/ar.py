@@ -1,5 +1,5 @@
 import os.path
-
+from torch.nn import functional as F
 import functorch.dim
 import numpy as np
 import torch
@@ -87,11 +87,11 @@ def perform_inversion(ar, sentence, embedding_dim, iterations=20000):
     one_hot = torch.zeros(len(sentence[0]), VOCAB_SIZE)
     for i in range(len(sentence[0])):
         one_hot[i][sentence[0][i]] = 1
-    for _ in range(20000):
+    for _ in range(2000):
         optimizer.zero_grad()
         criterion = torch.nn.CrossEntropyLoss()
         logits, loss = ar.forward(None, sentence, input_vec)
-        logits = functorch.dim.softmax(logits, dim=2)
+        logits = F.softmax(logits, dim=2)
         loss = criterion(logits[0], one_hot)
         loss.backward()
         optimizer.step()
@@ -137,3 +137,6 @@ if __name__ == '__main__':
     target = e("I am a little squirrel holding a walnut")
 
     print(loss)
+
+
+
