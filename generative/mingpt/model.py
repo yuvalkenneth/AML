@@ -251,7 +251,7 @@ class GPT(nn.Module):
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (
-        str(inter_params),)
+            str(inter_params),)
         assert len(
             param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
                                                     % (str(param_dict.keys() - union_params),)
@@ -265,16 +265,19 @@ class GPT(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
         return optimizer
 
-    def forward(self, idx, targets=None):
-        device = idx.device
-        b, t = idx.size()
-        assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, t)
+    def forward(self, idx, targets=None, input_vector=None):
+        if input_vector is None:
+            device = idx.device
+            b, t = idx.size()
+            assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
+            pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, t)
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
-        x = self.transformer.drop(tok_emb + pos_emb)
+            tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
+            pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
+            x = self.transformer.drop(tok_emb + pos_emb)
+        else:
+            x = input_vector
         for block in self.transformer.h:
             x = block(x)
         x = self.transformer.ln_f(x)

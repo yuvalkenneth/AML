@@ -10,7 +10,7 @@ TRAIN_ITERATIONS = 1000
 
 TRAIN_BATCH_SIZE = 32
 
-# VOCAB_SIZE = 50257
+VOCAB_SIZE = 50257
 BLOCK_SIZE = 64
 LR = 5e-4
 
@@ -27,10 +27,10 @@ class TrainSet(Dataset):
         return self.tokens[idx], self.labels[idx]
 
 
-def init_model(vocab_size):
+def init_model():
     model_config = GPT.get_default_config()
     model_config.model_type = 'gpt-nano'
-    model_config.vocab_size = vocab_size
+    model_config.vocab_size = VOCAB_SIZE
     model_config.block_size = BLOCK_SIZE
     gpt = GPT(model_config)
     return gpt
@@ -83,13 +83,12 @@ if __name__ == '__main__':
     z = clean_string(dataset)
     e = mingpt.bpe.BPETokenizer()
     tokenized_data = e(z)
-    vocab = tokenized_data.unique().shape[0]
     x, y = data_by_blocks(tokenized_data[0], BLOCK_SIZE)
     x = torch.stack(x)
     y = torch.stack(y)
     dataset = TrainSet(x, y)
     # dataset = TrainSet(x, y)
 
-    model = init_model(vocab)
+    model = init_model()
     model_trainer = init_trainer(model, dataset)
     model_trainer.run()
