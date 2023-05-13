@@ -1,5 +1,7 @@
 import os.path
 
+import functorch.dim
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 
@@ -74,17 +76,23 @@ class TrainSet(Dataset):
         return self.tokens[idx], self.labels[idx]
 
 
-def perform_inversion(ar, sentence, embedding_dim, iterations=1000):
+def perform_inversion(ar, sentence, embedding_dim, iterations=20000):
     model.eval()
     for param in ar.parameters():
         param.requires_grad = False
-    input_vec = torch.randint(0, VOCAB_SIZE, (1, len(sentence[0]), embedding_dim),
-                              dtype=torch.float,
-                              requires_grad=True)
-    optimizer = torch.optim.Adam([input_vec], lr=LR)
-    for _ in range(iterations):
+    vec = np.random.uniform(0, VOCAB_SIZE, (1, len(sentence[0]), embedding_dim))
+    input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True)
+    optimizer = torch.optim.Adam([input_vec], lr=1e-3)
+
+    one_hot = torch.zeros(len(sentence[0]), VOCAB_SIZE)
+    for i in range(len(sentence[0])):
+        one_hot[i][sentence[0][i]] = 1
+    for _ in range(20000):
         optimizer.zero_grad()
+        criterion = torch.nn.CrossEntropyLoss()
         logits, loss = ar.forward(None, sentence, input_vec)
+        logits = functorch.dim.softmax(logits, dim=2)
+        loss = criterion(logits[0], one_hot)
         loss.backward()
         optimizer.step()
 
@@ -115,7 +123,7 @@ if __name__ == '__main__':
     # torch.save(model.state_dict(), 'ar_model_weights.pth')
 
     sentence_tokens = e("I am a little squirrel holding a walnut")
-    inp = perform_inversion(model, sentence_tokens, 48, 4000)
+    inp = perform_inversion(model, sentence_tokens, 48, 1000)
     logits, loss = model.forward(None, None, inp)
     tokenized_answer = torch.argmax(logits, dim=2)
     prompt = e("I am a little")
