@@ -1,6 +1,5 @@
 import os.path
 from torch.nn import functional as F
-import functorch.dim
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -45,14 +44,14 @@ def init_trainer(model_to_train, data):
 
 
 def data_by_blocks(data, block_size):
-    i = 0
-    x = []
-    y = []
-    while i < len(data) - block_size:
-        x.append(data[i:i + block_size])
-        y.append(data[i + 1:i + block_size + 1])
-        i += 1
-    return x, y
+    ind = 0
+    tokens = []
+    targets = []
+    while ind < len(data) - block_size:
+        tokens.append(data[ind:ind + block_size])
+        targets.append(data[ind + 1:ind + block_size + 1])
+        ind += 1
+    return tokens, targets
 
 
 def clean_string(input_string):
@@ -85,15 +84,15 @@ def perform_inversion(ar, sentence, embedding_dim, iterations=20000):
     optimizer = torch.optim.Adam([input_vec], lr=1e-3)
 
     one_hot = torch.zeros(len(sentence[0]), VOCAB_SIZE)
+    criterion = torch.nn.CrossEntropyLoss()
     for i in range(len(sentence[0])):
         one_hot[i][sentence[0][i]] = 1
-    for _ in range(2000):
+    for _ in range(iterations):
         optimizer.zero_grad()
-        criterion = torch.nn.CrossEntropyLoss()
-        logits, loss = ar.forward(None, sentence, input_vec)
-        logits = F.softmax(logits, dim=2)
-        loss = criterion(logits[0], one_hot)
-        loss.backward()
+        logits, model_loss = ar.forward(None, sentence, input_vec)
+        probs = F.softmax(logits, dim=-1)
+        entropy_loss = criterion(probs[0], one_hot)
+        entropy_loss.backward()
         optimizer.step()
 
     return input_vec
@@ -121,22 +120,11 @@ if __name__ == '__main__':
         model_trainer.run()
 
     # torch.save(model.state_dict(), 'ar_model_weights.pth')
-
+    y = model.generate(e("for she had plenty of time as she went down"), 1)
     sentence_tokens = e("I am a little squirrel holding a walnut")
     inp = perform_inversion(model, sentence_tokens, 48, 1000)
-    logits, loss = model.forward(None, None, inp)
-    tokenized_answer = torch.argmax(logits, dim=2)
-    prompt = e("I am a little")
-    targets = e("am a little tea")
+    # logits, loss = model(None, None, inp)
+    # tokenized_answer = torch.argmax(logits, dim=2)
     # prompt = prompt.to("cuda")
-    model.forward(prompt, targets)
-    cypher = model.generate(prompt, 11)
 
-    for i in cypher:
-        print(e.decode(i.cpu().squeeze()))
-    target = e("I am a little squirrel holding a walnut")
-
-    print(loss)
-
-
-
+    print(5)
