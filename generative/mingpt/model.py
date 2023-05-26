@@ -51,6 +51,7 @@ class CausalSelfAttention(nn.Module):
                              .view(1, 1, config.block_size, config.block_size))
         self.n_head = config.n_head
         self.n_embd = config.n_embd
+        self.attention_score = None
 
     def forward(self, x):
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
@@ -63,6 +64,7 @@ class CausalSelfAttention(nn.Module):
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+        self.attention_score = att
         att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf'))
         att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
@@ -272,7 +274,7 @@ class GPT(nn.Module):
             assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
             pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0)  # shape (1, t)
 
-        # forward the GPT model itself
+            # forward the GPT model itself
             tok_emb = self.transformer.wte(idx)  # token embeddings of shape (b, t, n_embd)
             pos_emb = self.transformer.wpe(pos)  # position embeddings of shape (1, t, n_embd)
             x = self.transformer.drop(tok_emb + pos_emb)
@@ -291,17 +293,22 @@ class GPT(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None, input_vector=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
         """
+        predictions = []
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
-            idx_cond = idx if idx.size(1) <= self.block_size else idx[:, -self.block_size:]
-            # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
+            if input_vector is None:
+                idx_cond = idx if idx.size(1) <= self.block_size else idx[:, -self.block_size:]
+                # forward the model to get the logits for the index in the sequence
+                logits, _ = self(idx_cond)
+            else:
+                logits, _ = self(idx, input_vector=input_vector)
+
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
@@ -316,6 +323,9 @@ class GPT(nn.Module):
             else:
                 _, idx_next = torch.topk(probs, k=1, dim=-1)
             # append sampled index to the running sequence and continue
-            idx = torch.cat((idx, idx_next), dim=1)
+            if input_vector is None:
+                idx = torch.cat((idx, idx_next), dim=1)
+            else:
+                predictions.append(probs)
 
-        return idx
+        return idx if input_vector is None else predictions

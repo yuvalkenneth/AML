@@ -76,10 +76,10 @@ class TrainSet(Dataset):
 
 
 def perform_inversion(ar, sentence, embedding_dim, iterations=20000):
-    model.eval()
-    for param in ar.parameters():
-        param.requires_grad = False
-    vec = np.random.uniform(0, VOCAB_SIZE, (1, len(sentence[0]), embedding_dim))
+    # model.eval()
+    # for param in ar.parameters():
+    #     param.requires_grad = False
+    vec = np.random.uniform(0, VOCAB_SIZE, (1, BLOCK_SIZE, embedding_dim))
     input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True)
     optimizer = torch.optim.Adam([input_vec], lr=1e-3)
 
@@ -89,9 +89,10 @@ def perform_inversion(ar, sentence, embedding_dim, iterations=20000):
         one_hot[i][sentence[0][i]] = 1
     for _ in range(iterations):
         optimizer.zero_grad()
-        logits, model_loss = ar.forward(None, sentence, input_vec)
-        probs = F.softmax(logits, dim=-1)
-        entropy_loss = criterion(probs[0], one_hot)
+        probs = ar.generate(idx=None,input_vector=input_vec, max_new_tokens=8)
+        # logits, model_loss = ar.forward(None, sentence, input_vec)
+        # probs = F.softmax(logits, dim=-1)
+        entropy_loss = criterion(probs, one_hot)
         entropy_loss.backward()
         optimizer.step()
 
@@ -120,7 +121,11 @@ if __name__ == '__main__':
         model_trainer.run()
 
     # torch.save(model.state_dict(), 'ar_model_weights.pth')
-    y = model.generate(e("for she had plenty of time as she went down"), 1)
+    model.eval()
+    for param in model.parameters():
+        param.requires_grad = False
+
+    # y = model.generate(e("for she had plenty of time as she went down"), 2)
     sentence_tokens = e("I am a little squirrel holding a walnut")
     inp = perform_inversion(model, sentence_tokens, 48, 1000)
     # logits, loss = model(None, None, inp)
