@@ -1,9 +1,12 @@
 import os.path
+
+import seaborn as sns
+from matplotlib import pyplot as plt
 from torch.nn import functional as F
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-
+from tqdm import tqdm
 import mingpt.bpe
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
@@ -75,55 +78,24 @@ class TrainSet(Dataset):
         return self.tokens[idx], self.labels[idx]
 
 
-# def perform_inversion(ar, sentence, embedding_dim, iterations=2000):
-#     # model.eval()
-#     # for param in ar.parameters():
-#     #     param.requires_grad = False
-#     vec = np.random.uniform(0, VOCAB_SIZE, (1, BLOCK_SIZE, embedding_dim))
-#     input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True)
-#     optimizer = torch.optim.Adam([input_vec], lr=1e-3)
-#
-#     # one_hot = torch.zeros(len(sentence[0]), VOCAB_SIZE)
-#     # for i in range(len(sentence[0])):
-#     #     one_hot[i][sentence[0][i]] = 1
-#     criterion = torch.nn.CrossEntropyLoss(reduction="none")
-#
-#     # for i in range(len(sentence[0])):
-#     #     one_hot[i][sentence[0][i]] = 1
-#     for _ in range(iterations):
-#         optimizer.zero_grad()
-#         # for i in range(len(sentence[0])):
-#         #     a = ar.forward(None, None, input_vec)[0]
-#         #     probs = F.softmax(logits, dim=-1)
-#         #     entropy_loss[i] = criterion(probs, one_hot)
-#         probs = ar.generate(idx=None, input_vector=input_vec, max_new_tokens=len(sentence[0]))
-#         for i in range(len(sentence[0])):
-#             entropy_loss = criterion(probs[i], sentence[0][i])
-#             entropy_loss.backward(retain_graph=True)
-#         # logits, model_loss = ar.forward(None, sentence, input_vec)
-#         # probs = F.softmax(logits, dim=-1)
-#         # entropy_loss = criterion(probs, one_hot)
-#         # entropy_loss.backward()
-#         optimizer.step()
-#
-#     return input_vec
 def perform_inversion(ar, sentence, embedding_dim, iterations=2000):
     vec = np.random.uniform(0, VOCAB_SIZE, (1, BLOCK_SIZE, embedding_dim))
     input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True)
+
+    optimizer = torch.optim.Adam([input_vec], lr=1e-3)
     if torch.cuda.is_available():
         input_vec = input_vec.cuda()
 
-    optimizer = torch.optim.Adam([input_vec], lr=1e-3)
     criterion = torch.nn.CrossEntropyLoss(reduction="none")
     verify_vec = input_vec.detach().clone()
     losses = []
 
-    for _ in range(iterations):
+    for _ in tqdm(range(iterations)):
         optimizer.zero_grad()
         probs = ar.generate(idx=None, input_vector=input_vec, max_new_tokens=len(sentence[0]))
         loss = 0.0
         for i in range(len(sentence[0])):
-            entropy_loss = criterion(probs[i].unsqueeze(0), sentence[0][i].unsqueeze(0))
+            entropy_loss = criterion(probs[i].unsqueeze(0), sentence[0][i].unsqueeze(0).to(probs[i].device))
             loss += entropy_loss
         loss.backward(retain_graph=True)
         losses.append(loss.item())
@@ -153,13 +125,42 @@ if __name__ == '__main__':
     else:
         model_trainer.run()
 
-    # torch.save(model.state_dict(), 'ar_model_weights.pth')
     model.eval()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # y = model.generate(e("for she had plenty of time as she went down"), 2)
-    sentence_tokens = e("I am a little squirrel holding a walnut")
-    inp = perform_inversion(model, sentence_tokens, 48, 5000)
-    logits = model.generate(idx=None, input_vector=inp, max_new_tokens=8)
-    probabilities = F.softmax(logits, dim=-1)
-    pred = torch.topk(probabilities, 1, dim=1)
-    print(5)
+
+    ### Q2
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # # y = model.generate(e("for she had plenty of time as she went down"), 2)
+    # sentence_tokens = e("I am a little squirrel holding a walnut")
+    # inp = perform_inversion(model, sentence_tokens, 48)
+    # logits = model.generate(idx=None, input_vector=inp, max_new_tokens=8)
+    # probabilities = F.softmax(logits, dim=-1)
+    # pred = torch.topk(probabilities, 1, dim=1)[1]
+    # for token in pred:
+    #     print(e.decode(token))
+
+    ### Q3
+    y = model.generate(e("for she had plenty of time as she went down"), 2)
+    attention_score_last_block = model.transformer.h[-1].get_attention_score()
+    last_block_average_attention = attention_score_last_block.mean(dim=1)[0]
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(last_block_average_attention[-1].detach().unsqueeze(0), annot=True, fmt=".2f", cmap="viridis")
+    plt.xlabel('Token Index')
+    plt.ylabel('11th Word')
+    plt.title('Attention Scores Heatmap (11th Word) - Last Block')
+    plt.show()
+
+    ### Q4
+    attention_score_first_block = model.transformer.h[0].get_attention_score()
+    first_block_average_attention = attention_score_first_block.mean(dim=1)[0]
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(first_block_average_attention[-1].detach().unsqueeze(0), annot=True, fmt=".2f", cmap="viridis")
+    plt.xlabel('Token Index')
+    plt.ylabel('11th Word')
+    plt.title('Attention Scores Heatmap (11th Word) - First Block')
+    plt.show()
+
+
+    ### Q5
+    probabilities = model.generate(e("for she had plenty"), 5, get_probs=True)
+    log_probability_score = np.prod(np.log(probabilities))
+    print(1)

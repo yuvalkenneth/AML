@@ -1,13 +1,3 @@
-"""
-Full definition of a GPT Language Model, all of it in this single file.
-
-References:
-1) the official GPT-2 TensorFlow implementation released by OpenAI:
-https://github.com/openai/gpt-2/blob/master/src/model.py
-2) huggingface/transformers PyTorch implementation:
-https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
-"""
-
 import math
 
 import torch
@@ -64,9 +54,9 @@ class CausalSelfAttention(nn.Module):
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        self.attention_score = att
         att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float('-inf'))
         att = F.softmax(att, dim=-1)
+        self.attention_score = att
         att = self.attn_dropout(att)
         y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
         y = y.transpose(1, 2).contiguous().view(B, T, C)  # re-assemble all head outputs side by side
@@ -92,6 +82,9 @@ class Block(nn.Module):
         ))
         m = self.mlp
         self.mlpf = lambda x: m.dropout(m.c_proj(m.act(m.c_fc(x))))  # MLP forward
+
+    def get_attention_score(self):
+        return self.attn.attention_score
 
     def forward(self, x):
         x = x + self.attn(self.ln_1(x))
@@ -284,7 +277,6 @@ class GPT(nn.Module):
             x = block(x)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
-
         # if we are given some desired targets also calculate the loss
         loss = None
         if targets is not None:
@@ -292,14 +284,17 @@ class GPT(nn.Module):
 
         return logits, loss
 
-    @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None, input_vector=None):
+    # @torch.no_grad()
+    def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None,
+                 input_vector=None, get_probs=False):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
         """
-        predictions = []
+        probabilities = []
+        predictions = torch.tensor([], requires_grad=True,
+                                   device="cuda:0" if torch.cuda.is_available() else "cpu")
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             if input_vector is None:
@@ -307,7 +302,7 @@ class GPT(nn.Module):
                 # forward the model to get the logits for the index in the sequence
                 logits, _ = self(idx_cond)
             else:
-                logits, _ = self(idx, input_vector=input_vector)
+                logits, _ = self.forward(None, None, input_vector)
 
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
@@ -321,11 +316,15 @@ class GPT(nn.Module):
             if do_sample:
                 idx_next = torch.multinomial(probs, num_samples=1)
             else:
-                _, idx_next = torch.topk(probs, k=1, dim=-1)
+                prob, idx_next = torch.topk(probs, k=1, dim=-1)
+                probabilities.append(prob.detach().tolist()[0])
             # append sampled index to the running sequence and continue
             if input_vector is None:
                 idx = torch.cat((idx, idx_next), dim=1)
             else:
-                predictions.append(probs)
+                predictions = predictions.to("cuda:0" if torch.cuda.is_available() else "cpu")
+                predictions = torch.cat((predictions, logits), dim=0)
+                t = self.transformer.wte(idx_next)
+                input_vector = torch.cat((input_vector[:, 1:, :], t), dim=1)
 
-        return idx if input_vector is None else predictions
+        return idx if input_vector is None and not get_probs else probabilities if get_probs else predictions
