@@ -1,4 +1,6 @@
 import os.path
+
+import matplotlib.pyplot as plt
 from torch.nn import functional as F
 import numpy as np
 import torch
@@ -31,16 +33,18 @@ def init_trainer(model_to_train, data):
     train_config.learning_rate = LR
     train_config.max_iters = TRAIN_ITERATIONS
     train_config.batch_size = TRAIN_BATCH_SIZE
+    losses = []
 
     def batch_end_callback(train):
         if train.iter_num % 100 == 0:
             print(
                 f"iter_dt {train.iter_dt * 1000:.2f}ms; iter {train.iter_num}: train loss "
                 f"{train.loss.item():.5f}")
+            losses.append(train.loss.item())
 
     trainer = Trainer(train_config, model_to_train, data)
     trainer.set_callback('on_batch_end', batch_end_callback)
-    return trainer
+    return trainer, losses
 
 
 def data_by_blocks(data, block_size):
@@ -147,11 +151,14 @@ if __name__ == '__main__':
     # dataset = TrainSet(x, y)
 
     model = init_model()
-    model_trainer = init_trainer(model, dataset)
+    model_trainer, train_loss = init_trainer(model, dataset)
     if os.path.exists("ar_model_weights.pth"):
         model.load_state_dict(torch.load("ar_model_weights.pth", map_location=torch.device('cpu')))
     else:
         model_trainer.run()
+        plt.plot(train_loss)
+        plt.title("Train loss")
+        plt.show()
 
     # torch.save(model.state_dict(), 'ar_model_weights.pth')
     model.eval()

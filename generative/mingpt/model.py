@@ -293,14 +293,16 @@ class GPT(nn.Module):
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
         """
         probabilities = []
+        device = "cuda:0" if torch.cuda.is_available() else "cpu"
+
         predictions = torch.tensor([], requires_grad=True,
-                                   device="cuda:0" if torch.cuda.is_available() else "cpu")
+                                   device=device)
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             if input_vector is None:
                 idx_cond = idx if idx.size(1) <= self.block_size else idx[:, -self.block_size:]
                 # forward the model to get the logits for the index in the sequence
-                logits, _ = self(idx_cond)
+                logits, _ = self.forward(idx, None, None)
             else:
                 logits, _ = self.forward(None, None, input_vector)
 

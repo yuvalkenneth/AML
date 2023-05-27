@@ -1,12 +1,13 @@
 import os.path
 
-import seaborn as sns
-from matplotlib import pyplot as plt
+import matplotlib.pyplot as plt
 from torch.nn import functional as F
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 from tqdm import tqdm
+from torch.utils.data import Dataset
+import seaborn as sns
+
 import mingpt.bpe
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
@@ -34,16 +35,18 @@ def init_trainer(model_to_train, data):
     train_config.learning_rate = LR
     train_config.max_iters = TRAIN_ITERATIONS
     train_config.batch_size = TRAIN_BATCH_SIZE
+    losses = []
 
     def batch_end_callback(train):
         if train.iter_num % 100 == 0:
             print(
                 f"iter_dt {train.iter_dt * 1000:.2f}ms; iter {train.iter_num}: train loss "
                 f"{train.loss.item():.5f}")
+            losses.append(train.loss.item())
 
     trainer = Trainer(train_config, model_to_train, data)
     trainer.set_callback('on_batch_end', batch_end_callback)
-    return trainer
+    return trainer, losses
 
 
 def data_by_blocks(data, block_size):
@@ -61,7 +64,7 @@ def clean_string(input_string):
     output_string = ""
     for i in input_string:
         if i.isalnum() or i == " " or i in "!(),.:;-":
-            output_string += i
+            output_string += i.lower()
     output_string = " ".join(output_string.split())
     return output_string
 
@@ -87,7 +90,7 @@ def perform_inversion(ar, sentence, embedding_dim, iterations=2000):
         input_vec = input_vec.cuda()
 
     criterion = torch.nn.CrossEntropyLoss(reduction="none")
-    verify_vec = input_vec.detach().clone()
+
     losses = []
 
     for _ in tqdm(range(iterations)):
@@ -119,17 +122,18 @@ if __name__ == '__main__':
     # dataset = TrainSet(x, y)
 
     model = init_model()
-    model_trainer = init_trainer(model, dataset)
+    model_trainer, train_loss = init_trainer(model, dataset)
     if os.path.exists("ar_model_weights.pth"):
-        model.load_state_dict(torch.load("ar_model_weights.pth", map_location=torch.device('cpu')))
+        model.load_state_dict(torch.load("ar_model_weights.pth", map_location="cpu"))
     else:
         model_trainer.run()
+        plt.plot(train_loss)
+        plt.title("Train loss")
+        plt.show()
 
     model.eval()
-
-    ### Q2
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # # y = model.generate(e("for she had plenty of time as she went down"), 2)
+    # model.to("cuda:0" if torch.cuda.is_available() else "cpu")
+    ## Q2
     # sentence_tokens = e("I am a little squirrel holding a walnut")
     # inp = perform_inversion(model, sentence_tokens, 48)
     # logits = model.generate(idx=None, input_vector=inp, max_new_tokens=8)
@@ -139,28 +143,37 @@ if __name__ == '__main__':
     #     print(e.decode(token))
 
     ### Q3
-    y = model.generate(e("for she had plenty of time as she went down"), 2)
-    attention_score_last_block = model.transformer.h[-1].get_attention_score()
-    last_block_average_attention = attention_score_last_block.mean(dim=1)[0]
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(last_block_average_attention[-1].detach().unsqueeze(0), annot=True, fmt=".2f", cmap="viridis")
-    plt.xlabel('Token Index')
-    plt.ylabel('11th Word')
-    plt.title('Attention Scores Heatmap (11th Word) - Last Block')
-    plt.show()
 
-    ### Q4
-    attention_score_first_block = model.transformer.h[0].get_attention_score()
-    first_block_average_attention = attention_score_first_block.mean(dim=1)[0]
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(first_block_average_attention[-1].detach().unsqueeze(0), annot=True, fmt=".2f", cmap="viridis")
-    plt.xlabel('Token Index')
-    plt.ylabel('11th Word')
-    plt.title('Attention Scores Heatmap (11th Word) - First Block')
-    plt.show()
+    with torch.no_grad():
+        prompt = e("for she had plenty of time as she went down")
+        if torch.cuda.is_available():
+            prompt = prompt.cuda()
+        y = model.generate(prompt, 2)
+        attention_score_last_block = model.transformer.h[-1].get_attention_score()
+        last_block_average_attention = attention_score_last_block.mean(dim=1)[0]
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(last_block_average_attention[-1].cpu().detach().unsqueeze(0),
+                    annot=True, fmt=".2f", cmap="viridis")
+        plt.xlabel('Token Index')
+        plt.ylabel('11th Word')
+        plt.title('Attention Scores Heatmap (11th Word) - Last Block')
+        plt.show()
 
+        ## Q4
+        attention_score_first_block = model.transformer.h[0].get_attention_score()
+        first_block_average_attention = attention_score_first_block.mean(dim=1)[0]
+        plt.figure(figsize=(8, 6))
+        sns.heatmap(first_block_average_attention[-1].cpu().detach().unsqueeze(0),
+                    annot=True, fmt=".2f", cmap="viridis")
+        plt.xlabel('Token Index')
+        plt.ylabel('11th Word')
+        plt.title('Attention Scores Heatmap (11th Word) - First Block')
+        plt.show()
 
-    ### Q5
-    probabilities = model.generate(e("for she had plenty"), 5, get_probs=True)
-    log_probability_score = np.prod(np.log(probabilities))
-    print(1)
+        ## Q5
+        prompt = e("for she had plenty")
+        if torch.cuda.is_available():
+            prompt = prompt.cuda()
+        probabilities = model.generate(idx=prompt, max_new_tokens=5, get_probs=True)
+        log_probability_score = np.prod(np.log(probabilities))
+        print(f'Log Probability Score: {log_probability_score}')
