@@ -286,7 +286,7 @@ class GPT(nn.Module):
 
     # @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None,
-                 input_vector=None, get_probs=False):
+                 input_vector=None, get_probs=False, targets=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -304,7 +304,7 @@ class GPT(nn.Module):
                 # forward the model to get the logits for the index in the sequence
                 logits, _ = self.forward(idx, None, None)
             else:
-                logits, _ = self.forward(None, None, input_vector)
+                logits, loss = self.forward(None, targets, input_vector)
 
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
@@ -319,7 +319,8 @@ class GPT(nn.Module):
                 idx_next = torch.multinomial(probs, num_samples=1)
             else:
                 prob, idx_next = torch.topk(probs, k=1, dim=-1)
-                probabilities.append(prob.detach().tolist()[0])
+                probabilities.append(prob)
+
             # append sampled index to the running sequence and continue
             if input_vector is None:
                 idx = torch.cat((idx, idx_next), dim=1)

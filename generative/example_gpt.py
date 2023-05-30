@@ -1,18 +1,18 @@
 import os.path
 
 import matplotlib.pyplot as plt
-from torch.nn import functional as F
 import numpy as np
-import torch
-from tqdm import tqdm
-from torch.utils.data import Dataset
 import seaborn as sns
+import torch
+from torch.nn import functional as F
+from torch.utils.data import Dataset
+from tqdm import tqdm
 
 import mingpt.bpe
 from mingpt.model import GPT
 from mingpt.trainer import Trainer
 
-TRAIN_ITERATIONS = 1000
+TRAIN_ITERATIONS = 2000
 
 TRAIN_BATCH_SIZE = 32
 
@@ -23,7 +23,7 @@ LR = 5e-4
 
 def init_model():
     model_config = GPT.get_default_config()
-    model_config.model_type = 'gpt-nano'
+    model_config.model_type = 'gpt2'
     model_config.vocab_size = VOCAB_SIZE
     model_config.block_size = BLOCK_SIZE
     gpt = GPT(model_config)
@@ -42,7 +42,7 @@ def init_trainer(model_to_train, data):
             print(
                 f"iter_dt {train.iter_dt * 1000:.2f}ms; iter {train.iter_num}: train loss "
                 f"{train.loss.item():.5f}")
-            losses.append(train.loss.item())
+        losses.append(train.loss.item())
 
     trainer = Trainer(train_config, model_to_train, data)
     trainer.set_callback('on_batch_end', batch_end_callback)
@@ -81,30 +81,24 @@ class TrainSet(Dataset):
         return self.tokens[idx], self.labels[idx]
 
 
-def perform_inversion(ar, sentence, embedding_dim, iterations=2000):
+def perform_inversion(ar, sentence, embedding_dim, iterations=3000):
     vec = np.random.uniform(0, VOCAB_SIZE, (1, BLOCK_SIZE, embedding_dim))
-    input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True)
-
-    optimizer = torch.optim.Adam([input_vec], lr=1e-3)
-    if torch.cuda.is_available():
-        input_vec = input_vec.cuda()
-
-    criterion = torch.nn.CrossEntropyLoss(reduction="none")
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True, device=device)
+    ar = ar.to(device)
+    sentence = [s.to(device) for s in sentence]
+    optimizer = torch.optim.Adam([input_vec], lr=0.1)
     losses = []
-
+    criterion = torch.nn.CrossEntropyLoss(reduction="none")
     for _ in tqdm(range(iterations)):
         optimizer.zero_grad()
-        probs = ar.generate(idx=None, input_vector=input_vec, max_new_tokens=len(sentence[0]))
-        loss = 0.0
-        for i in range(len(sentence[0])):
-            entropy_loss = criterion(probs[i].unsqueeze(0), sentence[0][i].unsqueeze(0).to(probs[i].device))
-            loss += entropy_loss
-        loss.backward(retain_graph=True)
-        losses.append(loss.item())
+        logits_list = ar.generate(idx=None, input_vector=input_vec, max_new_tokens=len(sentence[0]))
+        current_losses = criterion(logits_list, sentence[0])
+        loss = current_losses.sum()
+        loss.backward()
         optimizer.step()
-
-    return input_vec
+        losses.append(loss.item())
+    return input_vec, losses
 
 
 if __name__ == '__main__':
@@ -119,28 +113,37 @@ if __name__ == '__main__':
     x = torch.stack(x)
     y = torch.stack(y)
     dataset = TrainSet(x, y)
-    # dataset = TrainSet(x, y)
 
     model = init_model()
     model_trainer, train_loss = init_trainer(model, dataset)
-    if os.path.exists("ar_model_weights.pth"):
-        model.load_state_dict(torch.load("ar_model_weights.pth", map_location="cpu"))
+    if os.path.exists("gpt_model_weights.pth"):
+        model.load_state_dict(torch.load("gpt_model_weights.pth", map_location="cpu"))
     else:
         model_trainer.run()
+        torch.save(model.state_dict(), "gpt_model_weights.pth")
         plt.plot(train_loss)
         plt.title("Train loss")
+        plt.xlabel("iteration")
+        plt.ylabel("loss")
+
         plt.show()
 
     model.eval()
-    # model.to("cuda:0" if torch.cuda.is_available() else "cpu")
-    ## Q2
-    # sentence_tokens = e("I am a little squirrel holding a walnut")
-    # inp = perform_inversion(model, sentence_tokens, 48)
-    # logits = model.generate(idx=None, input_vector=inp, max_new_tokens=8)
-    # probabilities = F.softmax(logits, dim=-1)
-    # pred = torch.topk(probabilities, 1, dim=1)[1]
-    # for token in pred:
-    #     print(e.decode(token))
+    for param in model.parameters():
+        param.requires_grad = False
+
+    model.to("cuda:0" if torch.cuda.is_available() else "cpu")
+    # Q2
+    sentence_tokens = e("I am a little squirrel holding a walnut").cuda()
+    inp, losses = perform_inversion(model, sentence_tokens, 768)
+    plt.plot(losses)
+    plt.title("Loss of inversion")
+    plt.show()
+    logits = model.generate(idx=None, input_vector=inp, max_new_tokens=8)
+    probabilities = F.softmax(logits, dim=-1)
+    pred = torch.topk(probabilities, 1, dim=1)[1]
+    for token in pred:
+        print(e.decode(token))
 
     ### Q3
 
@@ -174,6 +177,7 @@ if __name__ == '__main__':
         prompt = e("for she had plenty")
         if torch.cuda.is_available():
             prompt = prompt.cuda()
-        probabilities = model.generate(idx=prompt, max_new_tokens=5, get_probs=True)
+        probabilities = model.generate(idx=prompt, max_new_tokens=4, get_probs=True)
+        probabilities = [i.detach().tolist() for i in probabilities]
         log_probability_score = np.prod(np.log(probabilities))
         print(f'Log Probability Score: {log_probability_score}')

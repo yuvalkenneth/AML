@@ -5,18 +5,19 @@ import torch
 from diffusion_models import *
 
 
-def draw_scatter_plot(x_coordinates, y_coordinates, hue, title):
-    sns.scatterplot(x=x_coordinates, y=y_coordinates, hue=hue).set(title=title)
-    plt.legend(bbox_to_anchor=(1, 1), title='Class')
+def draw_scatter_plot(x_coordinates, y_coordinates, hue, title, palette='Paired',legend_title='Class'):
+    sns.scatterplot(x=x_coordinates, y=y_coordinates, hue=hue, legend="full", palette=palette).set(
+        title=title)
+    plt.legend(bbox_to_anchor=(1, 1), title=legend_title)
     plt.show()
 
 
 if __name__ == '__main__':
-    ## Q1
+    # Q1
     time_steps = np.arange(0, 1, 1 / T)
     point_progress(torch.tensor([0., 0.]), sigma_t, time_steps)
 
-    ## Q2
+    # Q2
     data = TrainSet(-1, 1, 2, SAMPLE_SIZE)
     data_loader = torch.utils.data.DataLoader(data, batch_size=BATCH_SIZE, shuffle=True)
     model = Denoiser()
@@ -27,9 +28,8 @@ if __name__ == '__main__':
     plt.plot(loss)
     plt.title('Loss over Batches - Q2.2.2.2')
     plt.show()
-    # point, trajectory = point_sampling(model, -1 / T, sigma_t, 2)
 
-    ## Q3
+    # Q3
     fig, axs = plt.subplots(3, 3, figsize=(10, 10))
     for i, ax in enumerate(fig.axes):
         point, trajectory = point_sampling(model, -1 / T, sigma_t, 2, num_samples=1000, seed=i)
@@ -40,15 +40,15 @@ if __name__ == '__main__':
 
     # Q4
     points = []
-    T_s = [100, 500, 1000, 2000, 5000]
+    T_s = [100, 500, 1000, 2000, 5000, 10000, 50000]
     for t in T_s:
         points.append(point_sampling(model, t if t == 0 else -1 / t, sigma_t, 2, num_samples=1,
                                      seed=0)[0].detach().
                       numpy().tolist()[0])
     x, y = zip(*points)
-    draw_scatter_plot(x, y, T_s, 'Point Sampling as a function of T - Q2.2.2.4')
+    draw_scatter_plot(x, y, T_s, 'Point Sampling as a function of T - Q2.2.2.4',legend_title="T")
 
-    ## Q5
+    # Q5
     fig, axs = plt.subplots(2, 2, figsize=(15, 15))
     normal_scheduler_points = point_sampling(model, -1 / T, sigma_t, 2, num_samples=1000, seed=0)[0]
 
@@ -92,7 +92,8 @@ if __name__ == '__main__':
     plt.show()
 
 
-    # #######CONDITIONAL########
+    #######CONDITIONAL########
+
     def condition(coordinate):
         for i, value in enumerate(np.arange(-0.6, 1.4, 0.4)):
             if coordinate[0] <= value:
@@ -102,7 +103,7 @@ if __name__ == '__main__':
     conditional_data = TrainSet(-1, 1, 2, SAMPLE_SIZE, conditional=condition)
     conditional_data_loader = torch.utils.data.DataLoader(conditional_data, batch_size=BATCH_SIZE,
                                                           shuffle=True)
-    ### Q1
+    # Q1
     x, y = zip(*conditional_data.points)
     draw_scatter_plot(x, y, conditional_data.classes, 'Conditional Data - 2.2.2.1 (conditional)')
 
@@ -113,9 +114,9 @@ if __name__ == '__main__':
     plt.title('Conditional Loss over Batches')
     plt.show()
 
-    ### Q2 - verbal question
+    # Q2 - verbal question
 
-    ### Q3
+    # Q3
     conditioned_trajectories = []
     x, y, classes = [], [], []
     for i in range(5):
@@ -126,7 +127,7 @@ if __name__ == '__main__':
         [y.append(sample[1]) for sample in conditioned_trajectories[i]]
         classes.extend([i] * (T + 1))
     draw_scatter_plot(x, y, classes, 'Conditional Trajectories by Class - Q2.2.2.3 (conditional)')
-    ### Q4
+    # Q4
     conditioned_samples = []
     x, y = [], []
     classes = []
@@ -139,11 +140,11 @@ if __name__ == '__main__':
 
     draw_scatter_plot(x, y, classes, 'Conditional Samples by Class - Q2.2.2.4 (conditional)')
 
-    ### Q5 - verbal question
+    # Q5 - verbal question
 
-    ### Q6
+    # Q6
 
-    points = [[-0.8, 0.8, 0], [-0.8, 0.8, 2], [-2, 0, 0], [0.6, 0, 3], [0.6, 0, 4]]
+    points = [[-0.8, 0.8, 0], [-0.8, 0.8, 2], [-2, 0, 0], [0.5, 0, 3], [0.9, 0.5, 4]]
     log_probabilities = []
 
     for point in points:
@@ -152,3 +153,11 @@ if __name__ == '__main__':
                                                   label))
     print(f"points: {points}")
     print(f'ELBO: {log_probabilities}')
+    x, y = zip(*conditional_data.points)
+    sns.scatterplot(x=x, y=y, hue=conditional_data.classes, palette='Paired', alpha=0.05, s=100)
+    z = sns.scatterplot(x=[point[0] for point in points], y=[point[1] for point in points], hue=[point[2] for
+                                                                                                 point in
+                                                                                                 points],
+                        marker='x', s=100, zorder=10, legend=False, alpha=1, palette='Paired')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
+    plt.show()
