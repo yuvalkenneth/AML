@@ -1,12 +1,11 @@
-
 import os
-import seaborn as sns
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.nn import functional as F
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from torch.nn import functional as F
 
 import mingpt.bpe
 from mingpt.model import GPT
@@ -89,7 +88,7 @@ def perform_inversion(gpt, output_sentence, embedding_dim, context_size, iterati
     input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True, device=device)
     optimizer = torch.optim.Adam([input_vec], lr=0.01)
     gpt.to(device)
-    output_sentence = sentence = [s.to(device) for s in output_sentence]
+    # output_sentence = sentence = [s.to(device) for s in output_sentence]
     inversion_loss = []
     for _ in tqdm(range(iterations)):
         inversion_loss.append(0)
@@ -102,6 +101,30 @@ def perform_inversion(gpt, output_sentence, embedding_dim, context_size, iterati
             loss.backward(retain_graph=True)
         optimizer.step()
     return input_vec, inversion_loss
+
+
+def colorize_text(sentence, weights):
+    # Written by ChatGPT
+    colored_sentence = ""
+    min_weight = min(weights)
+    max_weight = max(weights)
+
+    for word, weight in zip(sentence.split(), weights):
+        # Normalize the weight to the range [0, 1]
+        normalized_weight = (weight - min_weight) / (max_weight - min_weight)
+
+        # Calculate the color based on the normalized weight
+        red = int((1 - normalized_weight) * 255)
+        green = int(normalized_weight * 255)
+        blue = 0
+
+        # Create the colored word using the RGB color values
+        colored_word = f"\033[38;2;{red};{green};{blue}m{word}\033[0m"
+
+        # Append the colored word to the colored sentence
+        colored_sentence += colored_word + " "
+
+    return colored_sentence.strip()
 
 
 if __name__ == '__main__':
@@ -134,7 +157,7 @@ if __name__ == '__main__':
         param.requires_grad = False
 
     model.to(device)
-
+    #
     sentence_tokens = e("I am a little squirrel holding a walnut").to(device)
     inp, losses = perform_inversion(model, sentence_tokens, 768, 20, iterations=1)
 
@@ -153,33 +176,28 @@ if __name__ == '__main__':
             print(e.decode(t))
 
         # Q3
-        y = model.generate(sentence_tokens, max_new_tokens=3)
+        y = model.generate(e("and had just begun to dream that she was walking"), max_new_tokens=2)
         last_block = model.get_blocks()[-1]
         last_block_averaged_attention = last_block.get_attention_score().mean(dim=1)[0]
-        print(last_block_averaged_attention[-1].sum())
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(last_block_averaged_attention[-1].cpu().detach().unsqueeze(0),
-                    annot=True, fmt=".2f", cmap="viridis")
-        plt.xlabel('Token Index')
-        plt.ylabel('11th Word')
-        plt.title('Attention Scores Heatmap (11th Word) - Last Block')
-        plt.show()
+        eleventh_word_attention = last_block_averaged_attention[-1]
+        eleventh_word_attention = [round(w.item(), 3) for w in eleventh_word_attention]
+        colored_sentence = colorize_text(e.decode(y[0])[:-1], eleventh_word_attention)
+
+        print(colored_sentence)
+        print(eleventh_word_attention)
 
         # Q4
         first_block = model.get_blocks()[0]
         first_block_averaged_attention = first_block.get_attention_score().mean(dim=1)[0]
-        plt.figure(figsize=(8, 6))
-        print(first_block_averaged_attention[-1].sum())
-        sns.heatmap(first_block_averaged_attention[-1].cpu().detach().unsqueeze(0),
-                    annot=True, fmt=".2f", cmap="viridis")
-        plt.xlabel('Token Index')
-        plt.ylabel('11th Word')
-        plt.title('Attention Scores Heatmap (11th Word) - First Block')
-        plt.show()
+        eleventh_word_attention = first_block_averaged_attention[-1]
+        eleventh_word_attention = [round(w.item(), 3) for w in eleventh_word_attention]
+        colored_sentence = colorize_text(e.decode(y[0])[:-1], eleventh_word_attention)
+        print(colored_sentence)
+        print(eleventh_word_attention)
 
         # Q5
         s, sentence_probabilities = model.generate(sentence_tokens[:, 0:3], max_new_tokens=6,
-                                                   get_probs=True)[0]
+                                                   get_probs=True)
         sentence_probabilities = sentence_probabilities[0].cpu().numpy()
         decoded_sentence = [e.decode(t) for t in s]
         print(f"log score of the sentence '{decoded_sentence}' is: {np.prod(np.log(sentence_probabilities))}")

@@ -672,5 +672,8 @@ class GPT(nn.Module):
                 logits.to(final_logits.device)
                 input_vector = torch.cat((input_vector, self.transformer.wte(idx_next)), dim=1)
                 final_logits = torch.cat((final_logits, logits))
-        return (idx if get_probs is False else idx, probabilities) if input_vector is None else \
-            input_vector, final_logits
+        if input_vector is None:
+            return idx if not get_probs else (idx, probabilities)
+        else:
+            return input_vector, final_logits
+
