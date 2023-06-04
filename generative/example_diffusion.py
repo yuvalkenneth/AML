@@ -32,8 +32,8 @@ if __name__ == '__main__':
     plt.title('Sampling example')
     plt.show()
     noise = torch.randn(1, 2) + torch.tensor([5., 6.5])
-    far_point = point_sampling(unconditional_model, -1 / T, sigma_t, 2, num_samples=1, noise=noise)[0]
-    print(1)
+    # far_point = point_sampling(unconditional_model, -1 / T, sigma_t, 2, num_samples=1, noise=noise)[0]
+    # print(1)
 
     # CONDITIONAL
     conditional_data = TrainSet(-1, 1, 2, SAMPLE_SIZE, conditional=condition)
