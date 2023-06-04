@@ -1,9 +1,8 @@
-import torch
 import numpy as np
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 LR = 1e-3
@@ -124,8 +123,6 @@ def point_sampling(denoiser, step_size, noise_scheduler, dim, num_samples=1, see
                    noise=None, stochastic=False):
     if seed is not None:
         torch.manual_seed(seed)
-    denoiser.eval()
-    denoiser.requires_grad_(False)
     z = torch.randn(num_samples, dim, dtype=denoiser.ln1.weight.dtype) if noise is None else noise.detach(
     ).clone()
     trajectory = [z.detach().tolist()[0]]
@@ -149,17 +146,26 @@ def point_sampling(denoiser, step_size, noise_scheduler, dim, num_samples=1, see
     return z, trajectory
 
 
-def point_progress(x, noise_scheduler, steps):
-    point_in_space = []
-    for t in steps:
-        noise = torch.randn(1, 2)
-        point_in_space.append((x + (noise_scheduler(torch.tensor(t)) * noise)[0]).tolist())
-    plt.scatter(*zip(*point_in_space), c=[0]+steps, cmap='magma', alpha=0.3)
-    cbar = plt.colorbar()
-    cbar.set_label('Index')
-    plt.title('Point Progression - Q2.2.1 (starting at (0,0))')
-    plt.show()
-    return point_in_space
+def custom_schedule_sampling(denoiser, steps, noise_scheduler, dim, num_samples=1, classes=None,
+                             noise=None):
+    z = torch.randn(num_samples, dim,
+                    dtype=denoiser.ln1.weight.dtype) if noise is None else noise.detach().clone()
+    trajectory = [z.detach().tolist()[0]]
+    for ind, t in enumerate(steps):
+        t = torch.tensor(t, requires_grad=True, dtype=denoiser.ln1.weight.dtype).reshape(1, 1)
+        t.retain_grad()
+        sigma = noise_scheduler(t)
+        sigma_derivative = torch.autograd.grad(sigma, t)[0]
+        if classes is None:
+            estimated_noise = denoiser(z, t.expand(num_samples, 1))
+        else:
+            estimated_noise = denoiser(z, t.expand(num_samples, 1), classes.expand(num_samples))
+        z_hat = z - sigma * estimated_noise
+        score = (z_hat - z) / (sigma ** 2)
+        dz = -sigma_derivative * sigma * score * (steps[ind] - (ind if ind == 0 else steps[ind - 1]))
+        z = z + dz
+        trajectory.append(z.detach().tolist()[0])
+    return z, trajectory
 
 
 def snr(noise_scheduler, factor, x):

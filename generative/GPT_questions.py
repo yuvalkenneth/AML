@@ -88,7 +88,7 @@ def perform_inversion(gpt, output_sentence, embedding_dim, context_size, iterati
     input_vec = torch.tensor(vec, dtype=torch.float, requires_grad=True, device=device)
     optimizer = torch.optim.Adam([input_vec], lr=0.01)
     gpt.to(device)
-    sentence = [s.to(device) for s in output_sentence]
+    output_sentence = sentence = [s.to(device) for s in output_sentence]
     inversion_loss = []
     for _ in tqdm(range(iterations)):
         inversion_loss.append(0)
@@ -159,7 +159,7 @@ if __name__ == '__main__':
     model.to(device)
     #
     sentence_tokens = e("I am a little squirrel holding a walnut").to(device)
-    inp, losses = perform_inversion(model, sentence_tokens, 768, 20, iterations=1)
+    inp, losses = perform_inversion(model, sentence_tokens, 768, 20, iterations=1500)
 
     plt.plot(losses)
     plt.title("Loss of inversion")
@@ -178,7 +178,6 @@ if __name__ == '__main__':
         # Q3
         sentence = e("and had just begun to dream that she was walking").to(device)
         y = model.generate(sentence, max_new_tokens=2)
-
         last_block = model.get_blocks()[-1]
         last_block_averaged_attention = last_block.get_attention_score().mean(dim=1)[0]
         eleventh_word_attention = last_block_averaged_attention[-1]
@@ -198,7 +197,7 @@ if __name__ == '__main__':
         print(eleventh_word_attention)
 
         # Q5
-        s, sentence_probabilities = model.generate(sentence[:,:3], max_new_tokens=5,
+        s, sentence_probabilities = model.generate(sentence, max_new_tokens=5,
                                                    get_probs=True)
         sentence_probabilities = sentence_probabilities[0].cpu().numpy()
         decoded_sentence = e.decode(s[0])
