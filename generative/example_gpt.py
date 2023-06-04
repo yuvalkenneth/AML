@@ -141,7 +141,7 @@ def colorize_text(sentence, weights):
 def run_questions():
     # Q2
     sentence_tokens = e("I am a little squirrel holding a walnut").to(device)
-    inp, losses = perform_inversion(model, sentence_tokens, 768, 20, iterations=1)
+    inp, losses = perform_inversion(model, sentence_tokens, 768, 20, iterations=1500)
     plt.plot(losses)
     plt.title("Loss of inversion")
     plt.show()
@@ -150,9 +150,9 @@ def run_questions():
 
         probs = F.softmax(logits, dim=-1)
 
-        p, toks = torch.topk(probs, k=1, dim=-1)
+        p, tokens = torch.topk(probs, k=1, dim=-1)
 
-        for t in toks:
+        for t in tokens:
             print(e.decode(t))
 
         # Q3
