@@ -31,7 +31,6 @@ if __name__ == '__main__':
     sns.scatterplot(x=x, y=y)
     plt.title('Sampling example')
     plt.show()
-    noise = torch.randn(1, 2) + torch.tensor([5., 6.5])
 
     # CONDITIONAL
     conditional_data = TrainSet(-1, 1, 2, SAMPLE_SIZE, conditional=condition)

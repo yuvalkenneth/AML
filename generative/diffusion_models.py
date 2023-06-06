@@ -146,28 +146,6 @@ def point_sampling(denoiser, step_size, noise_scheduler, dim, num_samples=1, see
     return z, trajectory
 
 
-def custom_schedule_sampling(denoiser, steps, noise_scheduler, dim, num_samples=1, classes=None,
-                             noise=None):
-    z = torch.randn(num_samples, dim,
-                    dtype=denoiser.ln1.weight.dtype) if noise is None else noise.detach().clone()
-    trajectory = [z.detach().tolist()[0]]
-    for ind, t in enumerate(steps):
-        t = torch.tensor(t, requires_grad=True, dtype=denoiser.ln1.weight.dtype).reshape(1, 1)
-        t.retain_grad()
-        sigma = noise_scheduler(t)
-        sigma_derivative = torch.autograd.grad(sigma, t)[0]
-        if classes is None:
-            estimated_noise = denoiser(z, t.expand(num_samples, 1))
-        else:
-            estimated_noise = denoiser(z, t.expand(num_samples, 1), classes.expand(num_samples))
-        z_hat = z - sigma * estimated_noise
-        score = (z_hat - z) / (sigma ** 2)
-        dz = -sigma_derivative * sigma * score * (steps[ind] - (ind if ind == 0 else steps[ind - 1]))
-        z = z + dz
-        trajectory.append(z.detach().tolist()[0])
-    return z, trajectory
-
-
 def snr(noise_scheduler, factor, x):
     return (factor(x) ** 2) / (noise_scheduler(x) ** 2)
 
