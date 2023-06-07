@@ -1,2 +1,4 @@
 /generative/venv/
 generative/.idea/
+*.pth
+generative/gpt_model_weights.pth
