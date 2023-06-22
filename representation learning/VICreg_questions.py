@@ -1,4 +1,5 @@
 import os
+import random
 
 import faiss
 import numpy as np
@@ -99,17 +100,17 @@ class LinearProbe(nn.Module):
 
 
 class NearestNeighborsImages(Dataset):
-    def __init__(self, images, neighbors):
-        self.images = images
+    def __init__(self, data, neighbors):
+        self.data = data
         self.neighbors = neighbors
 
     def __getitem__(self, index):
-        image = self.images[index]
+        image = self.data[index]
         neighbor = np.random.choice(self.neighbors[index])
-        return image, self.images[neighbor]
+        return image, self.data[neighbor]
 
     def __len__(self):
-        return len(self.images)
+        return len(self.data)
 
 
 def pca_tsne(enc, data):
@@ -131,47 +132,47 @@ def pca_tsne(enc, data):
         plt.show()
 
 
-def linear_probing(encoder_dim, num_classes, train_loader, test_loader, enc, probe_to_train, dev, path_name):
+def linear_probing(encoder_dim, num_classes, train_loader, test_loader, enc, linear_probe, dev, path_name):
     enc.eval()
     for par in enc.parameters():
         par.requires_grad = False
-    optimizer = torch.optim.Adam(probe_to_train.parameters())
+    optimizer = torch.optim.Adam(linear_probe.parameters())
     criterion = nn.CrossEntropyLoss()
     test_acc = 0
     if os.path.exists(path_name):
-        probe_to_train.load_state_dict(torch.load(path_name, map_location="cuda:0" if
-                                torch.cuda.is_available() else "cpu"))
+        linear_probe.load_state_dict(torch.load(path_name, map_location="cuda:0" if
+        torch.cuda.is_available() else "cpu"))
     else:
-        probe_to_train.train()
+        linear_probe.train()
         for epoch in range(EPOCHS):
             for images, labels in train_loader:
                 optimizer.zero_grad()
                 h = enc.encode(images.to(dev))
-                logits = probe_to_train(h)
+                logits = linear_probe(h)
                 loss = criterion(logits, labels.to(dev))
                 loss.backward()
                 optimizer.step()
-        torch.save(probe_to_train.state_dict(), path_name)
-    return test_linear_probe(dev, enc, probe_to_train, test_acc, test_loader)
+        torch.save(linear_probe.state_dict(), path_name)
+    return test_linear_probe(dev, enc, linear_probe, test_acc, test_loader)
 
 
-def test_linear_probe(dev, enc, probe, test_acc, test_loader):
-    probe.eval()
+def test_linear_probe(dev, enc, linear_probe, test_acc, test_loader):
+    linear_probe.eval()
     with torch.no_grad():
         for images, labels in test_loader:
             h = enc.encode(images.to(dev))
-            logits = probe(h)
+            logits = linear_probe(h)
             pred = torch.argmax(logits, dim=1)
             test_acc += torch.sum(pred == labels.to(dev)).item()
     return test_acc / len(test_loader.dataset)
 
 
-# def get_encoding(encoder, data_loader):
-#     encodings, targets = [], []
-#     for images, labels in data_loader:
-#         encodings.append(encoder.encode(images))
-#         targets.append(labels)
-#     return torch.stack(encodings), torch.stack(targets)
+def get_encoding(encoder, data_loader):
+    encodings, targets = [], []
+    for images, labels in data_loader:
+        encodings.extend(encoder.encode(images.to(device)))
+        targets.extend(labels)
+    return torch.stack(encodings), torch.stack(targets)
 
 
 def get_nearest_neighbors(data, k, enc):
@@ -186,7 +187,7 @@ def get_nearest_neighbors(data, k, enc):
     all_embeddings = torch.cat(codings, dim=0)
     data = torch.cat(dataset, dim=0)
     _, neighbors = index.search(all_embeddings.cpu(), k=k + 1)
-    return NearestNeighborsImages(data, neighbors)
+    return NearestNeighborsImages(data, neighbors[:, 1:])
 
 
 def vic_train(enc, proj, data, optimizer, dev, test_data):
@@ -203,14 +204,14 @@ def vic_train(enc, proj, data, optimizer, dev, test_data):
             z = proj(enc.encode(aug1.to(dev)))
             z_hat = proj(enc.encode(aug2.to(dev)))
             invariance = invariance_term(z, z_hat)
-            v_z = torch.tensor([0])  # variance_term(z)
-            v_z_hat = torch.tensor([0])  # variance_term(z_hat)
+            v_z = variance_term(z)
+            v_z_hat = variance_term(z_hat)
             cov_z = covariance_term(z)
             cov_z_hat = covariance_term(z_hat)
             invariance_loss.append(invariance.item())
             variance_loss.append((v_z + v_z_hat).item())
             covariance_loss.append((cov_z + cov_z_hat).item())
-            loss = LAMBDA * invariance + NU * (cov_z + cov_z_hat)  # + MU * (v_z + v_z_hat)
+            loss = LAMBDA * invariance + NU * (cov_z + cov_z_hat) + MU * (v_z + v_z_hat)
             loss.backward()
             optimizer.step()
             counter += 1
@@ -281,7 +282,50 @@ def freeze_model(model):
         param.requires_grad = False
 
 
+def get_neighbors(enc, data, indices, k=10):
+    embeddings = get_encoding(enc, data)[0]
+    dist_matrix = torch.cdist(embeddings, embeddings, p=2)
+    k_nearest = torch.topk(dist_matrix, k=k + 1, dim=1, largest=False)[1]
+    k_farthest = torch.topk(dist_matrix, k=k, dim=1, largest=True)[1]
+
+    return k_nearest[indices, :], k_farthest[indices, :]
+
+
+def retrieval(data, encoder, k=10):
+    classes_indices = [-1] * 10
+    classes_added = 0
+    while classes_added < 10:
+        index = random.randint(0, len(data))
+        if classes_indices[data.dataset[index][1]] == -1:
+            classes_indices[data.dataset[index][1]] = index
+            classes_added += 1
+    nearest, farthest = get_neighbors(encoder, data, classes_indices, k=k)
+    plot_neighbors(data.dataset, nearest, farthest, k=k)
+
+
+def plot_neighbors(data, nearest, farthest, k=10):
+    fig, axs = plt.subplots(10, 2 * k + 1, figsize=(20, 20))
+    for i in range(10):
+        for j in range(k + 1):
+            axs[i, j].imshow(data[nearest[i][j]][0].permute(1, 2, 0), interpolation='nearest')
+            axs[i, j].axis('off')
+            if j == 0:
+                axs[i, j].set_title('source image')
+            else:
+                axs[i, j].set_title('Nearest {}'.format(j))
+        for j in range(k):
+            axs[i, k + j + 1].imshow(data[farthest[i][j]][0].permute(1, 2, 0), interpolation='nearest')
+            axs[i, k + j + 1].axis('off')
+            axs[i, k + j + 1].set_title('Farthest {}'.format(j + 1))
+    fig.suptitle('Nearest and Farthest', fontsize=24)
+    plt.show()
+
+
 if __name__ == '__main__':
+    normalize = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True,
                                             transform=transforms.ToTensor())
     train_image_set = ImageDataset(trainset.data, trainset.targets, transform=augmentations.train_transform)
@@ -302,12 +346,12 @@ if __name__ == '__main__':
         projector.load_state_dict(torch.load('projector.pth', map_location=device))
     else:
         encoder = vic_train(encoder, projector, trainloader, optim, device, testloader)
-        torch.save(encoder.state_dict(), 'encodere.pth')
+        torch.save(encoder.state_dict(), 'encoder.pth')
         torch.save(projector.state_dict(), 'projector.pth')
 
     freeze_model(encoder)
     trainset_downstream = TestingDataset(trainset.data, trainset.targets,
-                                         transform=augmentations.test_transform)
+                                         transform=normalize)
     trainloader_downstream = torch.utils.data.DataLoader(trainset_downstream, batch_size=BATCH_SIZE,
                                                          shuffle=True,
                                                          num_workers=4)
@@ -324,11 +368,10 @@ if __name__ == '__main__':
 
     # Q2 - PCA vs. T-SNE Visualizations
     pca_tsne(encoder, whole_testset)
-
     # Q3 - Linear Probing
     linear_probe = LinearProbe(ENCODER_DIM, 10).to(device)
     probing_acc = linear_probing(encoder_dim=ENCODER_DIM, num_classes=10, train_loader=trainloader_downstream,
-                                 test_loader=testloader_downstream, enc=encoder, probe_to_train=linear_probe,
+                                 test_loader=testloader_downstream, enc=encoder, linear_probe=linear_probe,
                                  dev=device, path_name="probe_weights.pth")
     print('Linear Probing Accuracy: ', probing_acc)
 
@@ -342,7 +385,7 @@ if __name__ == '__main__':
     no_variance_probe_acc = linear_probing(encoder_dim=ENCODER_DIM, num_classes=10,
                                            train_loader=trainloader_downstream,
                                            test_loader=testloader_downstream, enc=no_variance_encoder,
-                                           probe_to_train=no_variance_linear_probe, dev=device,
+                                           linear_probe=no_variance_linear_probe, dev=device,
                                            path_name="probe_weights_no_variance.pth")
     print('No Variance Linear Probing Accuracy: ', no_variance_probe_acc)
     pca_tsne(no_variance_encoder, whole_testset)
@@ -359,17 +402,22 @@ if __name__ == '__main__':
     else:
         no_generated_optim = torch.optim.Adam(
             list(no_generated_encoder.parameters()) + list(no_generated_projector.parameters()), lr=LR,
-            betas=BETAS,
-            weight_decay=WEIGHT_DECAY)
+            betas=BETAS, weight_decay=WEIGHT_DECAY)
         train_no_generated_neighbors(no_generated_encoder, no_generated_projector, nearest_neighbor_loader,
                                      no_generated_optim, device)
+        torch.save(no_generated_encoder.state_dict(), 'no_generated_encoder.pth')
 
     freeze_model(no_generated_encoder)
-    # pca_tsne(no_generated_encoder, whole_testset)
+    pca_tsne(no_generated_encoder, whole_testset)
     no_generated_probe = LinearProbe(ENCODER_DIM, 10).to(device)
     probing_acc_no_neighbors = linear_probing(encoder_dim=ENCODER_DIM, num_classes=10,
                                               train_loader=trainloader_downstream,
                                               test_loader=testloader_downstream, enc=no_generated_encoder,
-                                              probe_to_train=no_generated_probe, dev=device,
+                                              linear_probe=no_generated_probe, dev=device,
                                               path_name="no_generated_probe_weights.pth")
     print('Linear Probing Accuracy: ', probing_acc_no_neighbors)
+
+    # Q8 - Retrieval Evaluation
+    retrieval(trainset_loader_no_aug, encoder, k=5)
+
+    retrieval(trainset_loader_no_aug, no_generated_encoder, k=5)
