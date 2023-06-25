@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     # Linear Probing
     linear_probe = LinearProbe(ENCODER_DIM, 10).to(device)
-    probing_acc = linear_probing(encoder_dim=ENCODER_DIM, num_classes=10, train_loader=trainloader_downstream,
-                                 test_loader=testloader_downstream, enc=encoder, probe_to_train=linear_probe,
+    probing_acc = linear_probing(train_loader=trainloader_downstream,
+                                 test_loader=testloader_downstream, enc=encoder, probe=linear_probe,
                                  dev=device, path_name="probe_weights.pth")
     print('Linear Probing Accuracy: ', probing_acc)
