@@ -28,24 +28,51 @@ if __name__ == '__main__':
     all_embeddings = all_embeddings.cpu().detach().numpy()
     all_embeddings_no_neighbors = all_embeddings_no_neighbors.cpu().detach().numpy()
 
-    kmeans = KMeans(n_clusters=10).fit_predict(all_embeddings)
-    kmeans_no_neighbors = KMeans(n_clusters=10).fit_predict(all_embeddings_no_neighbors)
+    tsne = TSNE()
 
-    tsne_data = TSNE().fit_transform(all_embeddings)
-    tsne_data_no_neighbors = TSNE().fit_transform(all_embeddings_no_neighbors)
+    kmeans_data = KMeans(n_clusters=10).fit(all_embeddings)
+    kmeans_no_neighbors_data = KMeans(n_clusters=10).fit(all_embeddings_no_neighbors)
+
+    kmeans = kmeans_data.predict(all_embeddings)
+    kmeans_no_neighbors = kmeans_no_neighbors_data.predict(all_embeddings_no_neighbors)
+
+    kmeans_centers = kmeans_data.cluster_centers_
+    kmeans_no_neighbors_centers = kmeans_no_neighbors_data.cluster_centers_
+
+    combined_data = np.vstack([all_embeddings, kmeans_centers])
+    combined_data_no_neighbors = np.vstack([all_embeddings_no_neighbors, kmeans_no_neighbors_centers])
+
+    tsne_combined_data = tsne.fit_transform(combined_data)
+    tsne_combined_data_no_neighbors = tsne.fit_transform(combined_data_no_neighbors)
+
+    tsne_data = tsne_combined_data[:-len(kmeans_centers)]
+    tsne_kmeans_centers = tsne_combined_data[-len(kmeans_centers):]
+
+    tsne_data_no_neighbors = tsne_combined_data_no_neighbors[:-len(kmeans_no_neighbors_centers)]
+    tsne_kmeans_no_neighbors_centers = tsne_combined_data_no_neighbors[-len(kmeans_no_neighbors_centers):]
+
+    # plotting
 
     fig, ax = plt.subplots(1, 2, figsize=(20, 10))
-    sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=kmeans, ax=ax[0], palette="Paired")
-    sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=all_labels, ax=ax[1], palette="Paired")
+    sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=kmeans, ax=ax[0], palette="colorblind")
+    sns.scatterplot(x=tsne_data[:, 0], y=tsne_data[:, 1], hue=all_labels, ax=ax[1], palette="colorblind")
+
+    ax[0].scatter(tsne_kmeans_centers[:, 0], tsne_kmeans_centers[:, 1], c='black', s=100, alpha=0.5)
+    ax[1].scatter(tsne_kmeans_centers[:, 0], tsne_kmeans_centers[:, 1], c='black', s=100, alpha=0.5)
     ax[0].set_title('KMeans Clustering')
     ax[1].set_title('True Labels')
     plt.suptitle("Normal VICReg")
     plt.show()
+
     fig, ax = plt.subplots(1, 2, figsize=(20, 10))
     sns.scatterplot(x=tsne_data_no_neighbors[:, 0], y=tsne_data_no_neighbors[:, 1], hue=kmeans_no_neighbors,
-                    ax=ax[0], palette="Paired")
+                    ax=ax[0], palette="colorblind")
     sns.scatterplot(x=tsne_data_no_neighbors[:, 0], y=tsne_data_no_neighbors[:, 1],
-                    hue=all_labels, ax=ax[1], palette="Paired")
+                    hue=all_labels, ax=ax[1], palette="colorblind")
+    ax[0].scatter(tsne_kmeans_no_neighbors_centers[:, 0], tsne_kmeans_no_neighbors_centers[:, 1], c='black',
+                  s=100, alpha=0.5)
+    ax[1].scatter(tsne_kmeans_no_neighbors_centers[:, 0], tsne_kmeans_no_neighbors_centers[:, 1], c='black',
+                  s=100, alpha=0.5)
     ax[0].set_title('KMeans Clustering')
     ax[1].set_title('True Labels')
     plt.suptitle("No Generated Neighbors")
