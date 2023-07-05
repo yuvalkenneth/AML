@@ -1,14 +1,11 @@
-# import augmentations
 from VICreg_questions import *
 
 if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     encoder = Encoder(D=ENCODER_DIM, device=device).to(device)
-    # projector = Projector(D=ENCODER_DIM, proj_dim=PROJ_DIM).to(device)
 
     # Load weights
     encoder.load_state_dict(torch.load('encoder.pth', map_location=device))
-    # projector.load_state_dict(torch.load('projector.pth', map_location=device))
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True,
                                             transform=transforms.ToTensor())

@@ -175,7 +175,7 @@ def get_encoding(encoder, data_loader, device="cuda:0" if torch.cuda.is_availabl
     return torch.stack(encodings), torch.stack(targets)
 
 
-def get_nearest_neighbors(data, k, enc):
+def get_nearest_neighbors(data, k, enc, device="cuda:0" if torch.cuda.is_available() else "cpu"):
     index = faiss.IndexFlatL2(ENCODER_DIM)
     codings = []
     dataset = []
